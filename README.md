@@ -12,6 +12,11 @@
 
 本仓库从原协作项目恢复源码，并做了通用化整理：本地显式邮箱白名单、权限分流、诊断脚本和 GPT 接手文档。不是原电脑环境、运行密钥或已部署服务的副本。原始任务讨论与私人信息未公开。详见 [恢复记录与验证边界](docs/RECOVERY_AND_VALIDATION.md)。
 
+## Outlook COM 连接错误（0x800401E3）
+
+经典 Outlook 正在运行但远程工具出现 `COM_ATTACH_FAILED` 或 `0x800401E3`？
+先按 [COM 恢复和防复发手册](docs/COM_RECOVERY.md) 确认同一个 Windows 会话/权限、Outlook 焦点/ROT 状态，再运行 `Run-Outlook-Diagnostics.cmd`。本仓库的有界重试可缓解短暂注册延迟，但不能修复隔离会话；不要直接提权或重装。
+
 ## 先做本机检查
 
 1. Windows 上打开**经典 Outlook**，用自己的账户正常登录并同步邮件。新版 Outlook 不能直接替代本项目的 COM 接口。
