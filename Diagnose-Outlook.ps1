@@ -7,11 +7,18 @@ $report = [ordered]@{
     powershell_version = $PSVersionTable.PSVersion.ToString()
     elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     classic_outlook_running = (@(Get-Process OUTLOOK -ErrorAction SilentlyContinue).Count -gt 0)
+    diagnostic_session_id = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    outlook_session_ids = @()
+    session_match = $false
+    com_hresult = $null
     com_connected = $false
     mapi_connected = $false
     account_count = $null
     error_stage = $null
 }
+$outlookProcesses = @(Get-Process OUTLOOK -ErrorAction SilentlyContinue)
+$report.outlook_session_ids = @($outlookProcesses | ForEach-Object { $_.SessionId } | Select-Object -Unique)
+$report.session_match = @($report.outlook_session_ids) -contains $report.diagnostic_session_id
 $app = $null
 $namespace = $null
 try {
@@ -22,6 +29,7 @@ try {
     $report.mapi_connected = $true
 } catch {
     $report.error_stage = if ($report.com_connected) {'MAPI_FAILED'} else {'COM_ATTACH_FAILED'}
+    $report.com_hresult = '0x{0:X8}' -f ($_.Exception.HResult -band 0xFFFFFFFF)
 } finally {
     $namespace = $null
     $app = $null
