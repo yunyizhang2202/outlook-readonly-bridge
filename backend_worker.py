@@ -2,6 +2,7 @@
 import json
 import sys
 from outlook_core import OutlookReader, BridgeError
+from com_attach import attach_active_outlook
 
 sys.stdin.reconfigure(encoding="utf-8")
 sys.stdout.reconfigure(encoding="utf-8")
@@ -20,10 +21,7 @@ def run():
     pythoncom.CoInitialize()
     app = namespace = reader = None
     try:
-        try:
-            app = win32com.client.GetActiveObject("Outlook.Application")
-        except Exception:
-            raise BridgeError("Open classic Outlook in the logged-in Windows session first") from None
+        app = attach_active_outlook(win32com.client.GetActiveObject)
         namespace = app.GetNamespace("MAPI")
         from config import load_allowlist
         domains, addresses = load_allowlist()
