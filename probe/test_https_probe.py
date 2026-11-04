@@ -73,11 +73,17 @@ class ProbeTests(unittest.TestCase):
         csrf = re.search(r"name='csrf' value='([^']+)'", page.text).group(1)
         self.assertIn("HttpOnly", page.headers["set-cookie"])
         self.assertIn("Secure", page.headers["set-cookie"])
+        # A browser form must preserve a non-null Origin even while the request
+        # ID in /probe-login?request=... is never sent as the Referer.
+        self.assertEqual(page.headers["referrer-policy"], "origin")
+        self.assertIn("form-action 'self'", page.headers["content-security-policy"])
         self.assertEqual(self.client.post(url, data={"passphrase": PASSWORD}).status_code, 403)
         self.assertEqual(self.client.post(url, data={"passphrase": PASSWORD, "csrf": "无效"}).status_code, 403)
         self.assertEqual(self.client.post(url, content=b"a" * 9000).status_code, 413)
         self.assertEqual(self.client.post(url, data={"passphrase": PASSWORD, "csrf": csrf},
                                          headers={"Origin": "https://evil.example.test"}).status_code, 403)
+        self.assertEqual(self.client.post(url, data={"passphrase": PASSWORD, "csrf": csrf},
+                                         headers={"Origin": "null"}).status_code, 403)
         self.assertEqual(self.client.post(url, data={"passphrase": "wrong", "csrf": csrf}).status_code, 401)
 
     def test_pkce_and_one_use_code(self):
