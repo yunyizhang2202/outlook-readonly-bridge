@@ -161,7 +161,10 @@ def create_app(origin, passphrase):
                     "autocomplete='current-password' required maxlength='512'></label>"
                     f"<input type='hidden' name='csrf' value='{csrf}'>"
                     "<button type='submit'>Sign in and allow probe</button></form></body></html>")
-            response = HTMLResponse(body, headers=SECURITY_HEADERS)
+            # On HTML form POST, Referrer-Policy: no-referrer can make browsers send
+            # Origin: null. Send only the origin as Referer (never the request ID),
+            # while keeping the strict same-origin POST check and CSRF protection.
+            response = HTMLResponse(body, headers={**SECURITY_HEADERS, "Referrer-Policy": "origin"})
             response.set_cookie("probe_csrf", csrf, secure=True, httponly=True, samesite="lax", max_age=300)
             return response
         if request.headers.get("origin") not in (None, provider.origin):
