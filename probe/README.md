@@ -66,6 +66,20 @@ Cloudflare Quick Tunnel 不支持 SSE；本探针明确使用 stateless Streamab
 4. 发现/安装后应只出现 `bridge_ping`。在启用该连接的对话中调用它，预期返回 `AUTHENTICATED_MCP_PROBE_OK` 且 `mail_access: false`。
 5. 出现学校登录、OpenAI API key 输入要求、读邮箱工具或不同主机的登录页面时，不继续当作本探针；先核对目标文件/端口/URL。
 
+## “Origin rejected” 的浏览器表单修复（2026-11-04）
+
+**适用现象**：HTTPS 探针授权登录页已打开，提交仅用于测试的口令后，`/probe-login` 返回 `403 Origin rejected`，OAuth 尚未完成。它发生在口令校验之前，不能认定密码错误，也不能单凭此报错认定 Cloudflare 改写了请求头。
+
+**源码原因（高概率，待真实浏览器复测）**：原始 HTML 登录页沿用全局 `Referrer-Policy: no-referrer`。浏览器对普通 HTML 表单 POST，可能因此发送 `Origin: null`；源代码严格要求缺省或 `provider.origin`，会拒绝 `null`。见 [MDN Origin](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Origin) 与 [Referrer Policy 对 Origin 的影响](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy#effect_on_the_origin_header)。
+
+**最小修复**：仅对 GET `/probe-login` 登录 HTML 响应使用 `Referrer-Policy: origin`，使普通浏览器表单请求携带真实的同源 Origin，且 `Referer` 最多包含 `https://主机名`，不会暴露 `?request=...`。其他页面仍保留原策略。**没有**关闭/放宽服务器对 `Origin`、Host、CSRF、cookie、PKCE、回调目标的校验；`Origin: null` 与其他站点仍被拒。
+
+回归测试覆盖登录页面响应头以及攻击者来源/`null` 均被拒；但 Python TestClient 不模拟 Chrome 的自动生成 Origin 行为，因此该解释仍需朋友在真实浏览器验证。
+
+朋友更新本分支（合并 main 后再更新 main）并在**旧测试已停止**的情况下，使用既有虚拟环境和相同方法重新运行上述测试、探针和临时隧道。**重启探针会使内存 OAuth 状态失效**，所以需要重新发起 ChatGPT 自定义 MCP 连接的认证流程，不复用旧的登录页链接或 code。建议在 Chrome DevTools → Network 勾选 Preserve log，找到 POST `/probe-login`；仅在本机核对 `Origin` 的**类别**（同源 HTTPS / `null` / 其他域 / 其他协议 / 其他端口）与当前浏览器地址栏的实际主机是否一致。公开 Issue 只给分类和 HTTP 状态，绝不贴具体主机、URL、表单、Cookie、口令、state、code、authorization headers 或完整 HAR。
+
+若仍出现拒绝：先核对浏览器地址栏实际为当前 HTTPS Quick Tunnel 域名、探针的 `--public-origin` 也为这个域名且不包含 `/mcp`。检查浏览器是否是直接 HTTPS 页面、是否存在 iframe/sandbox、扩展或额外代理；**不要**修改请求头伪造来源、将 `null` 加入白名单、移除安全校验或改用公开邮箱服务。只反馈分类证据，再决定后续变更。
+
 ## 5. 验收与交接
 
 | 层 | 需要的实际证据 |
