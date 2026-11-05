@@ -2,33 +2,72 @@
 
 当前朋友的 Windows COM/MAPI、本机真实正文、Business HTTPS/OAuth `bridge_ping` 已通过。本改动不重做这些环节，也不再建另一个演示插件。
 
-## 2026-11-05 路线修正：没有域名/IdP时，先解决官方隧道关联
+## 当前首选：升级已通过的 HTTPS/OAuth，不回退原隧道
 
-朋友现已在 Windows 通过37项测试，并实际完成24h头信息索引（6封）与48h显式正文索引（11封），完整性正常、未读检查通过。不要重跑已有验收。上述计数只是本轮脱敏证据，不是长期固定结果。
+**本节取代上一轮“先修官方隧道关联”的建议。** 朋友明确选择继续 Server URL/OAuth；已通过的 HTTPS bridge_ping、37项Windows测试、24/48h真实本机邮件读取均保留。官方Tunnel支持工单至多为并行备用，不是本路线前置条件。
 
-**首选：复用原官方 Secure MCP Tunnel + 原 stdio 邮箱桥；本 PR 的 HTTP/外部 IdP 是备选，不是必备升级。** 官方隧道提供 OpenAI 托管入口，无需自备公网邮箱域名。本文不承诺隧道/API账户费用为零，也不建议先充值、买域名或租服务器。
+选择一条可落地的组合：**Tailscale Funnel 稳定 ts.net HTTPS + Auth0 托管 OAuth + 本 PR 三工具资源服务器**。不购买自己的DNS域名，不自建OAuth授权服务器，不借维护方密钥。它保持同一 Server URL/OAuth 架构；Quick Tunnel的地址和probe临时令牌无需迁移，迁移的是已验证的传输方式和已有读信后端。
 
-但“ChatGPT Business工作区”与“API Platform组织”不是同一对象。Business管理员不意味着一定有同名/对应的API组织；新建或重命名普通API组织，也没有已核实证据保证自动建立关联。当前既有证据是朋友只能使用Personal创建上下文，关联Business时Save被明确拒绝。不要再要求重复查角色、穷举Save、删隧道或重建同名组织。
+| 部分 | 本次选定实现 | 当前证据 |
+| --- | --- | --- |
+| A 稳定入口 | Tailscale Funnel，单台Windows设备的固定 *.ts.net 名称 | 官方文档支持稳定名称和后台恢复；朋友电脑尚未实测 |
+| B 持久身份 | Auth0专用tenant/API/client，RS256、PKCE、refresh rotation和撤销 | provider官方能力已核对；朋友tenant尚未配置/实测 |
+| C 真实工具 | 原mail_http.py → bridge_rpc → 原COM worker/精确白名单 | 37项Windows测试和本机读信通过；真实远端仍待验收 |
+| D 可恢复运行 | Funnel持久配置；Python在原Windows普通交互会话运行 | 不能将“Funnel恢复”当作“Python/Outlook已恢复” |
 
-仅有两种有依据的推进方式：
-- 如果朋友已经知道有实际对应目标工作区、本人有权加入的API组织，由该组织管理员通过正常成员管理确认其API侧成员与Tunnel权限；此后使用那个真实上下文。不是猜名称、借用维护方组织或临时扩大权限。
-- 没有这样的现有组织，沿用当前失败证据，通过页面现有“联系支持”入口请求核查Business工作区与本人Platform组织映射。官方文档对无法自动核验的企业映射提到人工关联，但没有保证每个Business账号都可获同样override；请Support明确本账号的资格、修复动作或限制。支持响应时间未核实，不能承诺当天修好。
+### 成本与新增依赖（2026-11-05核对）
 
-本轮唯一下一步应是后一个分支，除非朋友提供真实已有对应组织的新证据。私有支持会话可提交以下摘要（不用重现失败来补日志）：
+Tailscale [Personal价格](https://tailscale.com/pricing)当前为$0，符合个人用途条款时可用；[Funnel官方说明](https://tailscale.com/docs/features/tailscale-funnel)列为各计划可用，当前仍标beta。Auth0 [Free价格/功能表](https://auth0.com/pricing)当前为$0并包含Auth for MCP，注册无需信用卡；本方案使用供应商域名，不选付费自定义域名。额外依赖是本人的Tailscale账号/Windows客户端和Auth0账号/tenant，均只配置一次。是否仍落在免费额度、地区可用性及当前实际界面以本人注册时为准；本轮不授权付款、不承诺永久免费/SLA。
 
-> I am an administrator of my ChatGPT Business workspace. My API Platform organization can create a Secure MCP Tunnel, but saving an association with my own Business workspace is rejected with a Chinese message meaning “We could not automatically verify the association between these workspaces and organizations” and a Contact Support action. I currently only have the Personal Platform creation context available; I do not have a verified corresponding API organization to switch to. Please check the account/tenant mapping and tunnel association eligibility for this Business workspace, and tell me whether you can repair or enable the correct association, or which precise membership/permission is missing. Please do not redirect this to public app review or Microsoft/Windows administrator consent. Local classic-Outlook read-only access and an independent authenticated HTTPS MCP connectivity test have already passed; the blocker is this private tunnel association.
+### A. 获得固定名称；先不暴露未认证服务
 
-实际组织/Workspace/Tunnel标识、已知报错时间和已有request ID只在本人私有支持会话补充；没有request ID就注明没有，不索要完整HAR，不把标识贴公开Issue。维护方没有替朋友提交工单或作出平台保证。
+如果已安装Tailscale，沿用；否则只安装官方Windows客户端并登录本人个人tailnet。确认MagicDNS/HTTPS可用，在设备信息中取得该机的 *.ts.net 名称。保留设备、machine name和tailnet name；更名/删除设备可改变URL。域名只填本机配置，不发公开Issue。
 
-一旦平台关联恢复，在同一普通Windows会话复用现有客户端/venv/白名单，运行原有setup入口（实际路径与自己的Tunnel ID仅在本机输入）：
+先记录origin，然后完成B和本机配置，再启动下面两条命令。不要把旧probe的8787端口或无认证stdio服务转发出去。
 
-```powershell
-.\.venv\Scripts\python.exe setup_tunnel.py --client "C:\实际路径\tunnel-client.exe"
-```
+### B. Auth0一次配置，明确映射到已有代码
 
-脚本将交互询问Tunnel ID和隐藏运行密钥，不要把key粘到shell；保留现有forward-slash MCP command修复。若client已配置且doctor/run正常，不重复init，沿用有效profile。ChatGPT在目标Business工作区用正常Tunnel入口选择自己的同一Tunnel，按本机stdio服务实际配置认证。工具发现后只启用本轮需要的列账户、搜索、读正文，先不启用附件。数据处理范围确认后做一次代表性按需读信；通过再考虑每日定时，不重新跑一套HTTPS probe。
+1. 在专用tenant使用其默认auth0.com供应商域名，创建一项自定义API：Identifier = 固定HTTPS origin加 **/mcp**；RS256签名、不要JWE，access token lifetime设900秒；API权限定义mail:read，启用Allow Offline Access。
+2. Settings → Advanced启用 **Resource Parameter Compatibility Profile** 和 **Include Issuer in Authorization Responses**。前者将MCP的resource参数映射成audience；不是靠改Python放宽aud校验。依据：[Auth0资源参数指南](https://auth0.com/ai/docs/mcp/guides/resource-param-compatibility-profile)。
+3. 优先预注册一个本次ChatGPT连接专用OAuth client，以授权码+PKCE登录本人。使用ChatGPT支持且与client一致的token endpoint认证方法；public client可用none，confidential client则在ChatGPT正常OAuth配置内使用其secret，绝不发聊天/命令行。无需开启公开DCR，也不使用机器对机器grant读取邮箱。
+4. 将ChatGPT这次连接显示的**精确callback URI**加入该client的Allowed Callback URLs；不要放开所有chatgpt.com路径或照抄旧probe URL。若界面顺序需先发现服务再显示callback，可以先正常创建连接草稿，保存准确回调后完成同一次连接。
+5. 只启用本人登录所需的连接，创建/选择自己的用户。client启用Refresh Token grant及rotation并设置合理过期；API已允许offline access，授权时还必须请求offline_access。若provider广告openid/email/profile，确认该client允许这些scope。不要把token贴第三方JWT网页；在provider管理页/本机检查。
+6. 将provider canonical issuer（尾斜杠与metadata一致）、JWKS URL、本人的opaque sub和该client ID填入http-auth.local.json。代码同时要求owner和client精确匹配；不以邮箱替代sub，不借probe token。
 
-[官方Tunnel说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)明确区分组织/工作区关联与Read/Manage/Use；[自定义MCP入口](https://developers.openai.com/api/docs/guides/custom-mcp-server)区分Server URL和Tunnel。
+本次代码补充PRM广告mail:read和可选offline_access，真正读取邮件仍只要求mail:read；offline_access单独不能读邮件。广告scope不保证ChatGPT已经请求或provider已经发放refresh，实际授权/刷新仍必须验收。若连接设置支持scope字段，明确包含mail:read offline_access；如果客户端实际未请求offline_access，则据本机可见的scope类别定位，不延长access token来伪装长期连接。
+
+Auth0的注册/用户/授权/refresh记录由托管服务保存；Python重启不再清空这些状态。本桥没有新建密码库、签名私钥或refresh数据库。依据：[API Settings](https://auth0.com/docs/get-started/apis/api-settings)、[Refresh Token Rotation](https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation)。已发access JWT的即时撤销仍有至多15分钟窗口；紧急停用关闭本专用服务/Funnel，或移除本地owner/client并重启。
+
+### C. 复用现有venv和三工具，只有一次正式迁移
+
+保留已工作配置；仅更新本分支新增修订。原config.local.json仍是精确邮箱白名单，不改成域名通配。
+
+在数据处理范围确认后，在与Outlook相同的普通Windows交互会话运行：
+
+~~~powershell
+.\.venv\Scripts\python.exe mail_http.py --config http-auth.local.json --enable-real-mail
+~~~
+
+另一个终端配置Funnel：
+
+~~~powershell
+tailscale funnel --bg 8788
+tailscale funnel status
+~~~
+
+如Windows首次安装/配置Tailscale确需提升权限，只对该系统操作单独提升；**Outlook与Python桥仍普通运行**。Funnel会引导正常批准/HTTPS配置；不修改UAC、不重做740。已有Funnel/Serve配置时先检查，不用reset覆盖其他服务。命令依据：[Funnel CLI](https://tailscale.com/docs/reference/tailscale-cli/funnel)。
+
+ChatGPT Server URL填 **https://该设备.ts.net/mcp**，OAuth选择B中的同一client/provider；不使用原Quick Tunnel地址或probe口令。先确认公开PRM的resource/authorization_servers正确、未认证/mcp返回401；Host拒绝时核对Funnel转发Host，不关闭DNS rebinding/Origin保护。配置/登录只需针对这次正式迁移完成一次，不反复创建同功能测试插件。
+
+### D. 长期连接的最小验收，逐项记事实
+
+- 首次：只开放列账户/收件箱搜索/读正文三工具；最小代表性读取成功、unread_unchanged=true，附件不可用。公开仅报布尔结果，不贴邮件或标识。
+- Python重启：同一配置、同一URL，原OAuth注册仍可用；必要时同一连接正常刷新/重连，不要求新建插件。
+- 超过一次access token有效期后，下次正常使用时检查provider是否成功refresh且仍能调用。未实际越过15分钟/未见刷新结果就保留“长期刷新未验收”，不要为此阻塞等待或把首次登录算作长期成功。
+- 断网/睡眠后恢复：Funnel状态恢复、Python仍运行、Outlook在原登录会话可读；实际再次调用成功才算恢复。Funnel的--bg不替Python/Outlook保活，Windows注销后不能靠Session0后台服务读桌面COM。
+- 撤销：provider撤销refresh后不得再自动续期；已发access token可能到期前仍有效。需要立即切断时停止本专用Funnel/桥。完成这轮再考虑用户登录自启，最后才另验收每日定时任务。
+
+不要重做已经通过的本机37项、COM、740和旧probe；本次小补丁的回归由维护方负责。朋友只验新增provider/固定入口/刷新/真实远端组合。维护方尚未在朋友Windows上测试Tailscale/Auth0，不能保证首轮即通过。
 
 ## 成功先例与朋友当前路线的实际差异
 
@@ -117,7 +156,7 @@ ChatGPT 连接的 Server URL 必须是**固定 origin 加 `/mcp`**，OAuth 选�
 
 ## 验证边界及外部依据
 
-维护方 Linux/Python3.12/MCP1.30.0：37 项 unittest（含13项新增）通过；原 stdio 协议检查通过。HTTP 测试使用运行时生成的 RSA key、合成 token/邮件，验证401、合成公钥签名校验、issuer/audience/scope/owner/client/过期限制、每请求重新鉴权、账户白名单、无附件工具及响应、日志不返回原始错误。JWKS网络获取由库提供，本轮没有访问真实身份提供商；Windows COM、真实 provider OAuth/refresh 与真实邮件远端验收均尚待朋友执行。
+维护方 Linux/Python3.12/MCP1.30.0：38 项 unittest（含14项新增）通过；原 stdio 协议检查通过。HTTP 测试使用运行时生成的 RSA key、合成 token/邮件，验证401、合成公钥签名校验、issuer/audience/scope/owner/client/过期限制、每请求重新鉴权、账户白名单、无附件工具及响应、日志不返回原始错误。JWKS网络获取由库提供，本轮没有访问真实身份提供商；Windows COM、真实 provider OAuth/refresh 与真实邮件远端验收均尚待朋友执行。
 
 这是一份可审查的最小接入实现，不宣称经过完整生产安全审计。provider/域名及学校数据处理范围仍是必须落地的配置，不是单元测试能代替的东西。
 

@@ -57,7 +57,7 @@ class HTTPMailTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["resource"], ORIGIN + "/mcp")
         self.assertEqual(response.json()["authorization_servers"], [ISSUER])
-        self.assertEqual(response.json()["scopes_supported"], ["mail:read"])
+        self.assertEqual(response.json()["scopes_supported"], ["mail:read", "offline_access"])
         response = self.request("tools/list")
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.headers["cache-control"], "no-store")
@@ -128,6 +128,11 @@ class HTTPMailTests(unittest.TestCase):
         self.assertEqual(self.request("tools/list", token=self.token()).status_code, 200)
         response = self.request("tools/call", {"name": "outlook_list_accounts", "arguments": {}})
         self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.operations, [])
+
+    def test_optional_refresh_scope_does_not_replace_mail_permission(self):
+        self.assertEqual(self.request("tools/list", token=self.token(scope="offline_access")).status_code, 401)
+        self.assertEqual(self.request("tools/list", token=self.token(scope="mail:read")).status_code, 200)
         self.assertEqual(self.operations, [])
 
     def test_exact_mailbox_config_not_domain_wide(self):

@@ -19,6 +19,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import AnyHttpUrl
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from bridge_rpc import call
 from config import load_allowlist
@@ -176,6 +178,16 @@ def create_app(settings, *, rpc=call, mailbox_check=exact_mailbox_config, key_re
         return result
 
     app = mcp.streamable_http_app()
+
+    async def resource_metadata(request):
+        # Advertise optional refresh consent without requiring offline_access on
+        # mailbox access tokens. Refresh issuance/rotation stays with the IdP.
+        return JSONResponse({"resource": settings.resource,
+                             "authorization_servers": [settings.issuer],
+                             "scopes_supported": [SCOPE, "offline_access"]})
+
+    app.routes.insert(0, Route("/.well-known/oauth-protected-resource/mcp",
+                               resource_metadata, methods=["GET"]))
 
     async def no_store(scope, receive, send):
         async def guarded_send(message):
