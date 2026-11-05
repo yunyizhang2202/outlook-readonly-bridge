@@ -7,6 +7,7 @@ import argparse
 import getpass
 import hashlib
 import html
+import json
 import secrets
 import time
 from urllib.parse import urlsplit
@@ -52,7 +53,7 @@ def allowed_callback(uri):
 
 
 class ProbeProvider(OAuthAuthorizationServerProvider):
-    def __init__(self, origin, passphrase):
+    def __init__(self, origin, passphrase, *, audit=False):
         if len(passphrase) < 24:
             raise ValueError("Choose a new probe-only passphrase of at least 24 characters")
         self.origin = validate_origin(origin)
@@ -60,6 +61,37 @@ class ProbeProvider(OAuthAuthorizationServerProvider):
         self.password_hash = hashlib.sha256(passphrase.encode()).digest()
         self.clients, self.pending, self.codes, self.tokens = {}, {}, {}, {}
         self.failures = []
+        self.audit_enabled = audit
+        self.audit_instance = secrets.token_hex(4)
+        self.audit_started = time.monotonic()
+        self.audit_sequence = 0
+        self.audit_event("startup")
+
+    def audit_event(self, event, pending=None, *, request=None, request_id=None):
+        """Opt-in local JSON: only fixed labels, counts and booleans, never IDs/URLs."""
+        if not self.audit_enabled:
+            return
+        ttl = None if pending is None else pending["expires"] - time.time()
+        ttl_band = ("missing" if ttl is None else "expired" if ttl <= 0 else
+                    "0-30s" if ttl <= 30 else "31-120s" if ttl <= 120 else
+                    "121-300s" if ttl <= 300 else "over-300s")
+        record = {"probe_audit": 1, "instance": self.audit_instance,
+                  "elapsed_ms": int((time.monotonic() - self.audit_started) * 1000),
+                  "event": event, "pending_count": len(self.pending),
+                  "flow": None if pending is None else pending.get("audit_flow"),
+                  "ttl_band": ttl_band}
+        if request is not None:
+            # Compare the current query with the record associated with the CSRF
+            # cookie issued by GET. Emit only a boolean, never the cookie or key.
+            cookie = request.cookies.get("probe_csrf", "")
+            cookie_key = next((key for key, value in self.pending.items()
+                               if cookie and value.get("csrf") and
+                               secrets.compare_digest(cookie.encode(), value["csrf"].encode())), None)
+            record.update(query_present=bool(request_id),
+                          query_count=len(request.query_params.getlist("request")),
+                          cookie_matches_live_request=cookie_key is not None,
+                          query_matches_cookie_request=(None if cookie_key is None else cookie_key == request_id))
+        print(json.dumps(record, sort_keys=True), flush=True)
 
     def cleanup(self):
         now = time.time()
@@ -68,6 +100,8 @@ class ProbeProvider(OAuthAuthorizationServerProvider):
                 deadline = value["expires"] if isinstance(value, dict) else value.expires_at
                 if deadline <= now:
                     del table[key]
+                    if table is self.pending:
+                        self.audit_event("pending_expired", value)
         self.failures = [t for t in self.failures if t > now - 300]
 
     async def get_client(self, client_id):
@@ -88,8 +122,11 @@ class ProbeProvider(OAuthAuthorizationServerProvider):
         if not allowed_callback(params.redirect_uri) or len(self.pending) >= 50:
             raise AuthorizeError(error="invalid_request", error_description="Callback rejected or probe is busy")
         request_id = secrets.token_urlsafe(32)
+        self.audit_sequence += 1
         self.pending[request_id] = {"client_id": client.client_id, "params": params,
-                                    "expires": time.time() + 300, "csrf": None}
+                                    "expires": time.time() + 300, "csrf": None,
+                                    "audit_flow": self.audit_sequence}
+        self.audit_event("authorize_created", self.pending[request_id])
         return self.origin + "/probe-login?request=" + request_id
 
     async def load_authorization_code(self, client, authorization_code):
@@ -122,8 +159,8 @@ class ProbeProvider(OAuthAuthorizationServerProvider):
         self.tokens.pop(token.token, None)
 
 
-def create_app(origin, passphrase):
-    provider = ProbeProvider(origin, passphrase)
+def create_app(origin, passphrase, *, audit=False):
+    provider = ProbeProvider(origin, passphrase, audit=audit)
     host = urlsplit(provider.origin).hostname
     mcp = FastMCP(
         "Authenticated connectivity probe", stateless_http=True, json_response=True,
@@ -148,6 +185,8 @@ def create_app(origin, passphrase):
         provider.cleanup()
         request_id = request.query_params.get("request", "")
         pending = provider.pending.get(request_id)
+        provider.audit_event(request.method.lower() + ("_found" if pending is not None else "_missing"),
+                             pending, request=request, request_id=request_id)
         if pending is None:
             return PlainTextResponse("Request missing or expired. Restart sign-in.", status_code=400, headers=SECURITY_HEADERS)
         if request.method == "GET":
@@ -189,7 +228,9 @@ def create_app(origin, passphrase):
             return PlainTextResponse("Passphrase rejected. Return to sign-in.", status_code=401, headers=SECURITY_HEADERS)
         # No await between consuming the request and storing its one-use code.
         if provider.pending.pop(request_id, None) is None:
+            provider.audit_event("consume_missing", pending)
             return PlainTextResponse("Request already consumed", status_code=400, headers=SECURITY_HEADERS)
+        provider.audit_event("pending_consumed", pending)
         params = pending["params"]
         code = secrets.token_urlsafe(32)
         provider.codes[code] = AuthorizationCode(
@@ -209,6 +250,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public-origin", required=True, help="HTTPS origin of the approved forwarder; no /mcp path")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--audit", action="store_true", help="Print local redacted OAuth lifecycle diagnostics")
     args = parser.parse_args()
     origin = validate_origin(args.public_origin)
     if not 1024 <= args.port <= 65535:
@@ -216,7 +258,7 @@ def main():
     password = getpass.getpass("Create a NEW probe-only passphrase (24+ characters, hidden): ")
     if password != getpass.getpass("Repeat probe passphrase (hidden): "):
         parser.error("Passphrases differ")
-    app = create_app(origin, password)
+    app = create_app(origin, password, audit=args.audit)
     password = ""
     print("Probe only: no Outlook import or mail tools. MCP path is /mcp. Stop with Ctrl+C.")
     uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False, log_level="warning",
@@ -225,3 +267,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

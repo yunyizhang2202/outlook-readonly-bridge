@@ -80,6 +80,35 @@ Cloudflare Quick Tunnel 不支持 SSE；本探针明确使用 stateless Streamab
 
 若仍出现拒绝：先核对浏览器地址栏实际为当前 HTTPS Quick Tunnel 域名、探针的 `--public-origin` 也为这个域名且不包含 `/mcp`。检查浏览器是否是直接 HTTPS 页面、是否存在 iframe/sandbox、扩展或额外代理；**不要**修改请求头伪造来源、将 `null` 加入白名单、移除安全校验或改用公开邮箱服务。只反馈分类证据，再决定后续变更。
 
+## GET 表单正常、POST 却 missing/expired：一次定位（2026-11-05）
+
+Issue #1 最新实测确认：同源 Origin 修正后，重新 Sign in 能显示密码表单，但提交仍返回 `Request missing or expired`。这不是已经确认的“用户输入太慢”，也不是口令错误；该返回发生在口令校验之前。现有证据不足以区分到期、服务实例重建、重复消费或请求参数变化。
+
+本分支提供默认关闭的 `--audit`。在**同一条原有探针启动命令末尾**加上此选项；不要把占位域名作为实际地址。只停止并更新本项目的 Python probe 一次，保留仍有效的 cloudflared。使用原有 venv 先运行：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest test_core.py test_config.py probe.test_https_probe
+.\.venv\Scripts\python.exe test_protocol.py
+```
+
+探针重启会丢失内存 OAuth 客户端、pending、code 和 token。通过既有测试插件的正常入口重新授权；如果出现 `Client ID not found`，单独报告客户端注册状态失效，不复用旧 URL，也不无限新建插件。获得新表单后，只提交一次，并保留终端从 `startup` 到失败的 `probe_audit` JSON 行。不要开启原始 HTTP/access/debug 日志。
+
+输出只含随机本地服务实例标签、单调时钟相对毫秒、进程内递增 flow 序号、阶段、pending 数、TTL 分档、query 参数是否存在/个数及 cookie 对应关系的布尔值。**instance/flow 不是 OAuth request/client 标识，也不是其哈希。** 不输出 URL、地址、请求标识、OAuth state/code、口令、Cookie 或 token。日志仅写启动终端，不增加诊断 HTTP 端点。
+
+| 同一次尝试的观察 | 能说明什么 |
+| --- | --- |
+| `authorize_created → get_found → post_found → pending_consumed`，同一 instance/flow | 登录请求找到且已消费；随后继续验收 OAuth 回调和 bridge_ping |
+| `get_found` 后出现新 `startup`，instance 改变，随后 `post_missing` | 内存服务实例已重建，旧 pending 不在新实例里；不是仅凭此证明 Windows 重启 |
+| `pending_expired` 对应相同 flow，随后 `post_missing` | 服务按原有 300 秒规则清理了请求；比较 elapsed_ms。明显少于 300 秒需排本机墙钟跳变 |
+| `pending_consumed` 后再 `post_missing` | 可能重放/重复提交，结合是否已成功回调核对；不能把后一个报错当作第一次也失败 |
+| `post_missing` 且 query_present=false | POST 没有非空 request 参数 |
+| cookie_matches_live_request=true，但 query_matches_cookie_request=false | Cookie 对应的活动请求与 POST query 不同；检查本机表单目标/多标签页，不公开具体值 |
+| pending_count=0，没有 expiry/consume，instance 未变 | 尚不能确定；提供这一小段诊断，由维护方继续定位 |
+
+GET 日志在发新 CSRF cookie **之前**记录，GET 的 cookie 可能来自旧页；cookie 对应关系主要用于 POST。false/null 也可能因 cookie 缺失或过期，不能单独当作 query 被修改的证明。多标签页会覆盖共享 CSRF cookie，本轮只留一个新登录页。
+
+诊断不延长 TTL、不恢复已消费请求、不改变 Origin/CSRF/PKCE/Host/口令校验。维护方 Linux/Python 3.12 + MCP 1.30.0：23 项 unittest 通过，stdio 协议检查 PASS；新增测试覆盖正常消费/重复 POST、query 丢失或变化、GET 后到期、实例重建及日志脱敏。**Windows/Chrome/ChatGPT Business 真实重试仍待朋友执行，不能据此宣布远端已接通。**
+
 ## 5. 验收与交接
 
 | 层 | 需要的实际证据 |
@@ -103,3 +132,4 @@ Cloudflare Quick Tunnel 不支持 SSE；本探针明确使用 stateless Streamab
 - [OpenAI OAuth、PKCE、回调地址和 audience](https://developers.openai.com/plugins/build/auth)
 - [OpenAI 连接和测试](https://developers.openai.com/plugins/deploy/connect-chatgpt)
 - [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
+
