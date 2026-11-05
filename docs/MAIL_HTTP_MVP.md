@@ -2,6 +2,34 @@
 
 当前朋友的 Windows COM/MAPI、本机真实正文、Business HTTPS/OAuth `bridge_ping` 已通过。本改动不重做这些环节，也不再建另一个演示插件。
 
+## 2026-11-05 路线修正：没有域名/IdP时，先解决官方隧道关联
+
+朋友现已在 Windows 通过37项测试，并实际完成24h头信息索引（6封）与48h显式正文索引（11封），完整性正常、未读检查通过。不要重跑已有验收。上述计数只是本轮脱敏证据，不是长期固定结果。
+
+**首选：复用原官方 Secure MCP Tunnel + 原 stdio 邮箱桥；本 PR 的 HTTP/外部 IdP 是备选，不是必备升级。** 官方隧道提供 OpenAI 托管入口，无需自备公网邮箱域名。本文不承诺隧道/API账户费用为零，也不建议先充值、买域名或租服务器。
+
+但“ChatGPT Business工作区”与“API Platform组织”不是同一对象。Business管理员不意味着一定有同名/对应的API组织；新建或重命名普通API组织，也没有已核实证据保证自动建立关联。当前既有证据是朋友只能使用Personal创建上下文，关联Business时Save被明确拒绝。不要再要求重复查角色、穷举Save、删隧道或重建同名组织。
+
+仅有两种有依据的推进方式：
+- 如果朋友已经知道有实际对应目标工作区、本人有权加入的API组织，由该组织管理员通过正常成员管理确认其API侧成员与Tunnel权限；此后使用那个真实上下文。不是猜名称、借用维护方组织或临时扩大权限。
+- 没有这样的现有组织，沿用当前失败证据，通过页面现有“联系支持”入口请求核查Business工作区与本人Platform组织映射。官方文档对无法自动核验的企业映射提到人工关联，但没有保证每个Business账号都可获同样override；请Support明确本账号的资格、修复动作或限制。支持响应时间未核实，不能承诺当天修好。
+
+本轮唯一下一步应是后一个分支，除非朋友提供真实已有对应组织的新证据。私有支持会话可提交以下摘要（不用重现失败来补日志）：
+
+> I am an administrator of my ChatGPT Business workspace. My API Platform organization can create a Secure MCP Tunnel, but saving an association with my own Business workspace is rejected with “We could not automatically verify the association between these workspaces and organizations” and a Contact Support action. I currently only have the Personal Platform creation context available; I do not have a verified corresponding API organization to switch to. Please check the account/tenant mapping and tunnel association eligibility for this Business workspace, and tell me whether you can repair or enable the correct association, or which precise membership/permission is missing. Please do not redirect this to public app review or Microsoft/Windows administrator consent. Local classic-Outlook read-only access and an independent authenticated HTTPS MCP connectivity test have already passed; the blocker is this private tunnel association.
+
+实际组织/Workspace/Tunnel标识、已知报错时间和已有request ID只在本人私有支持会话补充；没有request ID就注明没有，不索要完整HAR，不把标识贴公开Issue。维护方没有替朋友提交工单或作出平台保证。
+
+一旦平台关联恢复，在同一普通Windows会话复用现有客户端/venv/白名单，运行原有setup入口（实际路径与自己的Tunnel ID仅在本机输入）：
+
+```powershell
+.\.venv\Scripts\python.exe setup_tunnel.py --client "C:\实际路径\tunnel-client.exe"
+```
+
+脚本将交互询问Tunnel ID和隐藏运行密钥，不要把key粘到shell；保留现有forward-slash MCP command修复。若client已配置且doctor/run正常，不重复init，沿用有效profile。ChatGPT在目标Business工作区用正常Tunnel入口选择自己的同一Tunnel，按本机stdio服务实际配置认证。工具发现后只启用本轮需要的列账户、搜索、读正文，先不启用附件。数据处理范围确认后做一次代表性按需读信；通过再考虑每日定时，不重新跑一套HTTPS probe。
+
+[官方Tunnel说明](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)明确区分组织/工作区关联与Read/Manage/Use；[自定义MCP入口](https://developers.openai.com/api/docs/guides/custom-mcp-server)区分Server URL和Tunnel。
+
 ## 成功先例与朋友当前路线的实际差异
 
 | 项目 | 已知成功先例 | 朋友当前状态 |
