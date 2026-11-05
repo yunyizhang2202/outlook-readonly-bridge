@@ -203,7 +203,15 @@ def create_app(origin, passphrase, *, audit=False):
             # On HTML form POST, Referrer-Policy: no-referrer can make browsers send
             # Origin: null. Send only the origin as Referer (never the request ID),
             # while keeping the strict same-origin POST check and CSRF protection.
-            response = HTMLResponse(body, headers={**SECURITY_HEADERS, "Referrer-Policy": "origin"})
+            # Chrome also applies form-action to the POST's cross-origin 303
+            # redirect. Permit only the fixed ChatGPT callback origin here;
+            # allowed_callback still validates the exact redirect URI at registration
+            # and authorization. Other responses retain the original CSP.
+            response = HTMLResponse(body, headers={
+                **SECURITY_HEADERS, "Referrer-Policy": "origin",
+                "Content-Security-Policy": "default-src 'none'; form-action 'self' https://chatgpt.com; "
+                                           "frame-ancestors 'none'; base-uri 'none'",
+            })
             response.set_cookie("probe_csrf", csrf, secure=True, httponly=True, samesite="lax", max_age=300)
             return response
         if request.headers.get("origin") not in (None, provider.origin):

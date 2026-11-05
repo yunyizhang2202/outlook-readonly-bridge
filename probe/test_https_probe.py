@@ -201,6 +201,29 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.exchange(client_id, code).status_code, 200)
         self.assertEqual(self.exchange(client_id, code).status_code, 400)
 
+    def test_login_csp_allows_only_chatgpt_callback_origin(self):
+        _, response = self.begin()
+        url = response.headers["location"]
+        page = self.client.get(url)
+        self.assertEqual(page.headers["content-security-policy"],
+                         "default-src 'none'; form-action 'self' https://chatgpt.com; "
+                         "frame-ancestors 'none'; base-uri 'none'")
+        csrf = re.search(r"name='csrf' value='([^']+)'", page.text).group(1)
+        original_csp = "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+        missing = self.client.get("/probe-login")
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(missing.headers["content-security-policy"], original_csp)
+        rejected = self.client.post(url, data={"csrf": csrf, "passphrase": PASSWORD},
+                                    headers={"Origin": "https://evil.example.test"})
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(rejected.headers["content-security-policy"], original_csp)
+        redirect = self.client.post(url, data={"csrf": csrf, "passphrase": PASSWORD},
+                                    headers={"Origin": ORIGIN})
+        self.assertEqual(redirect.status_code, 303)
+        self.assertEqual(urlsplit(redirect.headers["location"]).hostname, "chatgpt.com")
+        self.assertEqual(redirect.headers["content-security-policy"], original_csp)
+        self.assertEqual(self.register("https://chatgpt.com.evil.test/connector/oauth/test").status_code, 400)
+
     def test_wrong_resource_and_redirect_rejected(self):
         self.assertEqual(self.register("https://evil.example.test/callback").status_code, 400)
         _, response = self.begin("https://other.example.test/mcp")

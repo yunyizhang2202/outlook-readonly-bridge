@@ -4,6 +4,8 @@
 
 用途：判断 Business 工作区的正常 Server URL 接入是否可用，从而把问题缩小到 Secure MCP Tunnel 的组织关联，或发现另一个具体的 HTTPS/OAuth 错误。**它不是已经部署好的公网服务，也不是生产邮箱 OAuth 服务。**
 
+**2026-11-05 实测更新**：朋友在 Windows + Chrome + ChatGPT Business 的真实连接中调用 `bridge_ping`，取得 `{"ok":true,"message":"AUTHENTICATED_MCP_PROBE_OK","mail_access":false}`（[Issue #1](https://github.com/yunyizhang2202/outlook-readonly-bridge/issues/1) 的 friend-gpt-remote-bridge-ping-pass-20261105-13）。该结果来自 PR #4 旧提交加本机定向 CSP 修改；本分支现已包含相同的正式修复。已通过的是无邮箱 HTTPS/OAuth 工具调用，不是学校邮箱远端读取，也未解决原 Secure MCP Tunnel 组织关联。
+
 ## 已有的认证和限制
 
 - MCP `/mcp` 全部要求有效 Bearer token；未登录返回 401 和资源发现信息。
@@ -24,7 +26,7 @@
 .\.venv\Scripts\python.exe -m unittest probe.test_https_probe
 ```
 
-本次制作环境 Linux/Python 3.12/MCP 1.30.0 已通过 6 项测试：元数据和未认证拒绝、口令/CSRF/Origin、PKCE/授权码重用拒绝、错误 resource/回调拒绝、带认证 HTTP 工具调用，以及输入验证。使用真实 ASGI HTTP 路由和合成凭证，没有触及朋友的 Windows 或公网。
+当前维护方 Linux/Python 3.12/MCP 1.30.0 已通过 13 项探针测试，连同原有核心/配置共 24 项，stdio 协议检查 PASS。测试包括 HTTP/OAuth、PKCE、Origin/CSRF、pending 审计以及登录页 CSP 的回调许可和其他响应原策略保留。使用真实 ASGI HTTP 路由和合成凭证；维护方未在朋友的 Windows 上独立执行。
 
 同时原有 11 项核心/配置测试与 stdio 协议测试仍可按根 README 执行；已成功的本机邮箱检查不用反复重做。
 
@@ -70,11 +72,11 @@ Cloudflare Quick Tunnel 不支持 SSE；本探针明确使用 stateless Streamab
 
 **适用现象**：HTTPS 探针授权登录页已打开，提交仅用于测试的口令后，`/probe-login` 返回 `403 Origin rejected`，OAuth 尚未完成。它发生在口令校验之前，不能认定密码错误，也不能单凭此报错认定 Cloudflare 改写了请求头。
 
-**源码原因（高概率，待真实浏览器复测）**：原始 HTML 登录页沿用全局 `Referrer-Policy: no-referrer`。浏览器对普通 HTML 表单 POST，可能因此发送 `Origin: null`；源代码严格要求缺省或 `provider.origin`，会拒绝 `null`。见 [MDN Origin](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Origin) 与 [Referrer Policy 对 Origin 的影响](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy#effect_on_the_origin_header)。
+**已由朋友的真实浏览器对照支持的原因**：原始 HTML 登录页沿用全局 `Referrer-Policy: no-referrer`。Chrome 实际发送 `Origin: null`；源代码严格要求缺省或 `provider.origin`，会拒绝 `null`。修改登录页策略后同源 Origin 恢复正常，原错误消失。见 [MDN Origin](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Origin) 与 [Referrer Policy 对 Origin 的影响](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy#effect_on_the_origin_header)。
 
 **最小修复**：仅对 GET `/probe-login` 登录 HTML 响应使用 `Referrer-Policy: origin`，使普通浏览器表单请求携带真实的同源 Origin，且 `Referer` 最多包含 `https://主机名`，不会暴露 `?request=...`。其他页面仍保留原策略。**没有**关闭/放宽服务器对 `Origin`、Host、CSRF、cookie、PKCE、回调目标的校验；`Origin: null` 与其他站点仍被拒。
 
-回归测试覆盖登录页面响应头以及攻击者来源/`null` 均被拒；但 Python TestClient 不模拟 Chrome 的自动生成 Origin 行为，因此该解释仍需朋友在真实浏览器验证。
+回归测试覆盖登录页面响应头以及攻击者来源/`null` 均被拒；Python TestClient 不模拟 Chrome 自动生成 Origin 的行为，真实浏览器结论来自朋友在 Issue #1 的实测记录。
 
 朋友更新本分支（合并 main 后再更新 main）并在**旧测试已停止**的情况下，使用既有虚拟环境和相同方法重新运行上述测试、探针和临时隧道。**重启探针会使内存 OAuth 状态失效**，所以需要重新发起 ChatGPT 自定义 MCP 连接的认证流程，不复用旧的登录页链接或 code。建议在 Chrome DevTools → Network 勾选 Preserve log，找到 POST `/probe-login`；仅在本机核对 `Origin` 的**类别**（同源 HTTPS / `null` / 其他域 / 其他协议 / 其他端口）与当前浏览器地址栏的实际主机是否一致。公开 Issue 只给分类和 HTTP 状态，绝不贴具体主机、URL、表单、Cookie、口令、state、code、authorization headers 或完整 HAR。
 
@@ -107,7 +109,17 @@ Issue #1 最新实测确认：同源 Origin 修正后，重新 Sign in 能显示
 
 GET 日志在发新 CSRF cookie **之前**记录，GET 的 cookie 可能来自旧页；cookie 对应关系主要用于 POST。false/null 也可能因 cookie 缺失或过期，不能单独当作 query 被修改的证明。多标签页会覆盖共享 CSRF cookie，本轮只留一个新登录页。
 
-诊断不延长 TTL、不恢复已消费请求、不改变 Origin/CSRF/PKCE/Host/口令校验。维护方 Linux/Python 3.12 + MCP 1.30.0：23 项 unittest 通过，stdio 协议检查 PASS；新增测试覆盖正常消费/重复 POST、query 丢失或变化、GET 后到期、实例重建及日志脱敏。**Windows/Chrome/ChatGPT Business 真实重试仍待朋友执行，不能据此宣布远端已接通。**
+诊断不延长 TTL、不恢复已消费请求、不改变 Origin/CSRF/PKCE/Host/口令校验。此审计后来证实：首次 POST 已消费 pending，第二次失败的 POST 是用户看到页面未跳转后手动再次点击；没有自动重放的证据。真实阻断及修复见下一节。无需对已经通过的无邮箱连接重复这一轮诊断。
+
+## POST 303 后不跳转：登录页 CSP 修复（2026-11-05）
+
+朋友真实 Chrome 记录：首次 POST 返回 303，页面仍留在表单，Console 明确显示 `form-action 'self'` 阻止请求。原登录 HTML 的 CSP 只允许本站，而成功登录会通过 303 跳到白名单允许的 ChatGPT OAuth callback。Chrome 会对这一跳转应用 form-action 策略；相关浏览器差异见 [MDN form-action](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action)。
+
+正式修复**仅对 GET 登录 HTML**使用 `form-action 'self' https://chatgpt.com`。default-src、frame-ancestors、base-uri 保持原样；其他响应仍保留原 CSP。回调地址继续通过现有 `allowed_callback` 校验具体 HTTPS 主机与路径，未改 Origin/CSRF/PKCE/Host/口令和一次性授权码规则。新增回归测试确认精确 CSP、普通错误/303 响应策略未变、恶意回调域仍被拒。
+
+另一次 `Use the probe resource and probe:read scope` 报错，朋友已确认是新连接 Server URL 漏写 `/mcp`；修正路径后真实 bridge_ping 通过。该案例无需继续追加 scope/resource 审计或放宽校验。以后填写当前 HTTPS origin **加 `/mcp`**。
+
+已连接的探针无需为维护方整理补丁立即重启或再建插件；重启会清空内存 OAuth 状态。后续计划另行迁移稳定地址与持久化认证，不能直接往此临时探针增加 Outlook 工具。
 
 ## 5. 验收与交接
 
