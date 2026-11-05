@@ -17,3 +17,7 @@ config.local.json
 runtime-key*
 *Diagnostics*.txt
 
+
+http-auth.local.json
+digest.local*.json
+
